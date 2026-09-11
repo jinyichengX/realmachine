@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rikibot_nav2</name>
+  <version>0.1.0</version>
+  <description>rikibot Nav2 定位导航启动包: 适配真实麦轮底盘(base_link/odom/map, 无仿真时钟), 加载已建好的 SLAM 地图</description>
+  <maintainer email="rikibot@rikibot.com">rikibot</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

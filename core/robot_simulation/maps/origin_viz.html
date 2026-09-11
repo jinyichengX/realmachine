@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Map Origin 可视化</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:monospace;background:#1a1a2e;color:#eee;display:flex;height:100vh;overflow:hidden}
+.sidebar{width:300px;min-width:300px;padding:16px;background:#16213e;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+.sidebar h2{font-size:15px;color:#e94560;border-bottom:1px solid #333;padding-bottom:6px;margin-top:8px}
+.sidebar h2:first-child{margin-top:0}
+.sidebar label{font-size:12px;color:#aaa;display:block;margin-bottom:2px}
+.sidebar input{width:100%;padding:6px 8px;border:1px solid #444;border-radius:4px;background:#0f3460;color:#fff;font-family:monospace;font-size:13px}
+.row{display:flex;gap:8px}
+.row>div{flex:1}
+.info{background:#0f3460;border-radius:6px;padding:10px;font-size:12px;line-height:1.7}
+.info .hl{color:#e94560;font-weight:bold}
+.info hr{border-color:#333;margin:4px 0}
+.legend{font-size:11px;display:flex;gap:12px;flex-wrap:wrap;line-height:20px}
+.legend i{display:inline-block;width:12px;height:12px;vertical-align:-2px;margin-right:2px}
+.canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden;position:relative}
+canvas{cursor:crosshair}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <h2>Map YAML 参数</h2>
+  <div><label>image</label><input type="text" value="room.pgm" disabled style="color:#888"></div>
+  <div class="row">
+    <div><label>resolution (米/像素)</label><input id="res" type="number" value="0.05" step="0.005" min="0.01"></div>
+  </div>
+  <div class="row">
+    <div><label>origin X (米)</label><input id="ox" type="number" value="-18.9" step="0.1"></div>
+    <div><label>origin Y (米)</label><input id="oy" type="number" value="-18.7" step="0.1"></div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="resetBtn" style="flex:1;padding:6px;background:#e94560;color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:bold">重置</button>
+    <button id="zeroBtn" style="flex:1;padding:6px;background:#333;color:#eee;border:none;border-radius:4px;cursor:pointer">origin 归零</button>
+  </div>
+
+  <h2>关键关系</h2>
+  <div class="info">
+    <div>图片尺寸 <span class="hl" id="infoSize">-</span></div>
+    <div>图片左下角像素(0,最底行)</div>
+    <div>&nbsp;&nbsp;世界坐标 = <span class="hl" id="infoBL">-</span></div>
+    <hr>
+    <div>世界原点 (0, 0) 在图片位置</div>
+    <div>&nbsp;&nbsp;像素列 = <span class="hl" id="infoCol">-</span></div>
+    <div>&nbsp;&nbsp;像素行 = <span class="hl" id="infoRow">-</span></div>
+  </div>
+
+  <h2>鼠标悬停</h2>
+  <div class="info">
+    <div>世界坐标 <span class="hl" id="hoverWorld">-</span></div>
+    <div>图片像素 <span class="hl" id="hoverPix">-</span></div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:#e94560;border-radius:50%"></i> 世界原点 (0,0)</span>
+    <span><i style="background:#00ff00"></i> 图片左下角像素</span>
+    <span style="color:#e94560">━━  X 轴 (东)</span>
+    <span style="color:#00ff00">━━  Y 轴 (北)</span>
+  </div>
+  <div class="info" style="font-size:11px;color:#888;line-height:1.4">
+    滚轮缩放 | 拖拽平移<br>
+    origin 改变 → 世界坐标轴移动<br>图片不动物理位置不变
+  </div>
+</div>
+
+<div class="canvas-wrap" id="wrap">
+  <canvas id="c"></canvas>
+</div>
+
+<script>
+// ==================== PGM Parser ====================
+async function loadPGM(url) {
+  const resp = await fetch(url);
+  const buf = await resp.arrayBuffer();
+  const data = new Uint8Array(buf);
+
+  // Parse header
+  let pos = 0;
+  function nextToken() {
+    // skip whitespace and comments (# to newline)
+    while (pos < data.length) {
+      const ch = data[pos];
+      if (ch === 35) { // '#'
+        while (pos < data.length && data[pos] !== 10) pos++;
+        continue;
+      }
+      if (ch === 32 || ch === 10 || ch === 13 || ch === 9) { pos++; continue; }
+      break;
+    }
+    let start = pos;
+    while (pos < data.length) {
+      const ch = data[pos];
+      if (ch === 32 || ch === 10 || ch === 13 || ch === 9 || ch === 35) break;
+      pos++;
+    }
+    const str = new TextDecoder().decode(data.slice(start, pos));
+    return str;
+  }
+
+  const magic = nextToken();
+  if (magic !== 'P5') throw new Error('Only P5 (binary) PGM supported, got: ' + magic);
+
+  const w = parseInt(nextToken());
+  const h = parseInt(nextToken());
+  const maxVal = parseInt(nextToken());
+
+  // Binary data starts after the whitespace following maxVal
+  pos++; // skip the whitespace byte after maxval token
+
+  const pixelData = data.slice(pos, pos + w * h);
+  return { width: w, height: h, maxVal, pixels: pixelData };
+}
+
+// ==================== State ====================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+
+const elRes = document.getElementById('res');
+const elOx = document.getElementById('ox');
+const elOy = document.getElementById('oy');
+const elInfoSize = document.getElementById('infoSize');
+const elInfoBL = document.getElementById('infoBL');
+const elInfoCol = document.getElementById('infoCol');
+const elInfoRow = document.getElementById('infoRow');
+const elHoverWorld = document.getElementById('hoverWorld');
+const elHoverPix = document.getElementById('hoverPix');
+
+let res = 0.05, ox = -18.9, oy = -18.7;
+let imgW = 0, imgH = 0;
+let pgmPixels = null;      // Uint8Array of raw PGM values
+let offCanvas, offCtx;      // offscreen canvas for the grayscale image
+
+let offsetX = 0, offsetY = 0;  // pan
+let zoom = 1;
+let msx = -1, msy = -1;       // mouse screen coords
+
+// ==================== Load PGM ====================
+loadPGM('room.pgm').then(pgm => {
+  imgW = pgm.width;
+  imgH = pgm.height;
+  pgmPixels = pgm.pixels;
+
+  // Build offscreen canvas image (PGM -> canvas grayscale)
+  offCanvas = document.createElement('canvas');
+  offCanvas.width = imgW;
+  offCanvas.height = imgH;
+  offCtx = offCanvas.getContext('2d');
+  const id = offCtx.createImageData(imgW, imgH);
+  for (let i = 0; i < imgW * imgH; i++) {
+    const val = pgmPixels[i];
+    const idx = i * 4;
+    id.data[idx] = val;
+    id.data[idx+1] = val;
+    id.data[idx+2] = val;
+    id.data[idx+3] = 255;
+  }
+  offCtx.putImageData(id, 0, 0);
+
+  updateInfo();
+  draw();
+}).catch(err => {
+  console.error('PGM load failed:', err);
+});
+
+// ==================== Coordinate transforms ====================
+// Image row convention: row=0 is top of image in browser, but map YAML treats row=0 as bottom-left.
+// So map world Y for image row r is: oy + (imgH - 1 - r) * res
+
+function imgToWorld(col, imgRow) {
+  // imgRow: 0=top line of image (browser convention)
+  const wx = ox + col * res;
+  const wy = oy + (imgH - 1 - imgRow) * res;
+  return { x: wx, y: wy };
+}
+
+function worldToImg(wx, wy) {
+  const col = (wx - ox) / res;
+  const row = imgH - 1 - (wy - oy) / res; // 0=top
+  return { col, row };
+}
+
+// ==================== Draw ====================
+function draw() {
+  res = parseFloat(elRes.value) || 0.05;
+  ox = parseFloat(elOx.value) || 0;
+  oy = parseFloat(elOy.value) || 0;
+
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  canvas.width = w;
+  canvas.height = h;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  if (!pgmPixels) {
+    ctx.fillStyle = '#888';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('加载 room.pgm...', w/2, h/2);
+    return;
+  }
+
+  // World bounding box of image
+  const bl = imgToWorld(0, imgH - 1); // bottom-left (world)
+  const tr = imgToWorld(imgW - 1, 0); // top-right (world)
+  const wMinX = bl.x, wMaxX = tr.x;
+  const wMinY = bl.y, wMaxY = tr.y;
+
+  // Visible world range (image + 5m margin)
+  const margin = 5;
+  const vMinX = wMinX - margin;
+  const vMaxX = wMaxX + margin;
+  const vMinY = wMinY - margin;
+  const vMaxY = wMaxY + margin;
+
+  // Compute base scale to fit visible area into canvas
+  const rngX = vMaxX - vMinX;
+  const rngY = vMaxY - vMinY;
+  const baseS = Math.min(w / rngX, h / rngY);
+  const s = baseS * zoom;
+
+  // Center of visible world
+  const cwX = (vMinX + vMaxX) / 2;
+  const cwY = (vMinY + vMaxY) / 2;
+
+  // Screen transform (world Y up → screen Y down)
+  function toSX(wx) { return (wx - cwX) * s + w/2 + offsetX; }
+  function toSY(wy) { return h/2 - (wy - cwY) * s + offsetY; }
+  function toWX(sx) { return (sx - w/2 - offsetX) / s + cwX; }
+  function toWY(sy) { return (h/2 - sy + offsetY) / s + cwY; }
+
+  // ---- Draw 1m world grid ----
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 0.5;
+  const gs = 1;
+  for (let gx = Math.floor(vMinX); gx <= Math.ceil(vMaxX); gx += gs) {
+    const sx = toSX(gx);
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+  }
+  for (let gy = Math.floor(vMinY); gy <= Math.ceil(vMaxY); gy += gs) {
+    const sy = toSY(gy);
+    ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+  }
+
+  // ---- Draw map image (drawImage with world transform) ----
+  // The map image in world spans from (wMinX, wMinY) to (wMaxX, wMaxY)
+  // On screen: top-left corner of image in screen = (toSX(wMinX), toSY(wMaxY))
+  // Size in screen: (wMaxX-wMinX)*s by (wMaxY-wMinY)*s
+  const imgSX = toSX(wMinX);
+  const imgSY = toSY(wMaxY); // world top = smaller screen Y
+  const imgSW = (wMaxX - wMinX) * s;
+  const imgSH = (wMaxY - wMinY) * s;
+
+  // Only draw if image is on screen
+  if (imgSX < w && imgSX + imgSW > 0 && imgSY < h && imgSY + imgSH > 0) {
+    ctx.drawImage(offCanvas, imgSX, imgSY, imgSW, imgSH);
+  }
+
+  // ---- World axes ----
+  // X axis (red) at world Y=0
+  const axY = toSY(0);
+  ctx.strokeStyle = 'rgba(233,69,96,0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8,5]);
+  ctx.beginPath(); ctx.moveTo(0, axY); ctx.lineTo(w, axY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#e94560';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('X 轴 →', w-8, axY-6);
+
+  // Y axis (green) at world X=0
+  const axX = toSX(0);
+  ctx.strokeStyle = 'rgba(0,255,0,0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8,5]);
+  ctx.beginPath(); ctx.moveTo(axX, 0); ctx.lineTo(axX, h); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#0f0';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Y 轴 ↑', axX+8, 16);
+
+  // ---- World origin (0,0) RED dot ----
+  const oSX = toSX(0), oSY = toSY(0);
+  ctx.fillStyle = '#e94560';
+  ctx.beginPath(); ctx.arc(oSX, oSY, 8, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  const w2i = worldToImg(0, 0);
+  ctx.fillStyle = '#e94560';
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`世界原点 (0,0)`, oSX+12, oSY-8);
+  ctx.fillText(`像素 (${Math.round(w2i.col)}, ${Math.round(w2i.row)})`, oSX+12, oSY+8);
+
+  // ---- Bottom-left pixel GREEN dot ----
+  const blSX = toSX(ox), blSY = toSY(oy);
+  ctx.fillStyle = '#0f0';
+  ctx.beginPath(); ctx.arc(blSX, blSY, 6, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#0f0';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`图片左下角像素`, blSX+10, blSY+16);
+  ctx.fillText(`世界 (${ox.toFixed(2)}, ${oy.toFixed(2)})`, blSX+10, blSY+30);
+
+  // ---- Image border ----
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(imgSX, imgSY, imgSW, imgSH);
+
+  // ---- Mouse hover ----
+  if (msx > 0 && msy > 0) {
+    const wx = toWX(msx), wy = toWY(msy);
+    const pi = worldToImg(wx, wy);
+    const ic = Math.round(pi.col), ir = Math.round(pi.row);
+    if (ic >= 0 && ic < imgW && ir >= 0 && ir < imgH) {
+      // highlight the pixel
+      const hx = toSX(ox + ic * res);
+      const hy = toSY(oy + (imgH - 1 - ir) * res);
+      const hw = res * s, hh = res * s;
+      ctx.fillStyle = 'rgba(255,255,0,0.5)';
+      ctx.fillRect(hx - hw/2, hy - hh/2, hw, hh);
+      // crosshair
+      ctx.strokeStyle = 'yellow'; ctx.lineWidth = 1;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, h);
+      ctx.moveTo(0, hy); ctx.lineTo(w, hy); ctx.stroke();
+      ctx.setLineDash([]);
+      elHoverPix.textContent = `(${ic}, ${ir})`;
+      elHoverWorld.textContent = `(${wx.toFixed(3)}, ${wy.toFixed(3)})`;
+    } else {
+      elHoverPix.textContent = '(图片外)';
+      elHoverWorld.textContent = `(${wx.toFixed(2)}, ${wy.toFixed(2)})`;
+    }
+  }
+
+  // ---- Tick labels (every 5m) ----
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  for (let gx = Math.floor(vMinX/5)*5; gx <= Math.ceil(vMaxX); gx += 5) {
+    const sx = toSX(gx);
+    if (sx < 20 || sx > w-20) continue;
+    ctx.fillText(gx, sx, h-4);
+  }
+  ctx.textAlign = 'left';
+  for (let gy = Math.floor(vMinY/5)*5; gy <= Math.ceil(vMaxY); gy += 5) {
+    const sy = toSY(gy);
+    if (sy < 15 || sy > h-10) continue;
+    ctx.fillText(gy, 4, sy+4);
+  }
+
+  updateInfo();
+}
+
+function updateInfo() {
+  if (imgW === 0) return;
+  elInfoSize.textContent = `${imgW} x ${imgH} 像素`;
+  elInfoBL.textContent = `(${ox.toFixed(2)}, ${oy.toFixed(2)})`;
+  const w2i = worldToImg(0, 0);
+  elInfoCol.textContent = Math.round(w2i.col);
+  elInfoRow.textContent = Math.round(w2i.row);
+}
+
+// ==================== Events ====================
+elRes.addEventListener('input', draw);
+elOx.addEventListener('input', draw);
+elOy.addEventListener('input', draw);
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  elRes.value = '0.05';
+  elOx.value = '-18.9';
+  elOy.value = '-18.7';
+  offsetX = 0; offsetY = 0; zoom = 1;
+  draw();
+});
+document.getElementById('zeroBtn').addEventListener('click', () => {
+  elOx.value = '0';
+  elOy.value = '0';
+  draw();
+});
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  msx = e.clientX - r.left;
+  msy = e.clientY - r.top;
+  draw();
+});
+canvas.addEventListener('mouseleave', () => { msx = -1; msy = -1; elHoverPix.textContent='-'; elHoverWorld.textContent='-'; draw(); });
+
+// Pan
+let dragging = false, dsx, dsy, dox, doy;
+canvas.addEventListener('mousedown', e => {
+  if (e.button===0){ dragging=true; dsx=e.clientX; dsy=e.clientY; dox=offsetX; doy=offsetY; }
+});
+window.addEventListener('mousemove', e => {
+  if(dragging){ offsetX=dox+(e.clientX-dsx); offsetY=doy+(e.clientY-dsy); draw(); }
+});
+window.addEventListener('mouseup', ()=>{ dragging=false; });
+
+// Zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const oldZ = zoom;
+  zoom *= e.deltaY<0 ? 1.1 : 0.9;
+  zoom = Math.max(0.1, Math.min(30, zoom));
+  const ratio = zoom / oldZ;
+  offsetX = mx - ratio*(mx - offsetX);
+  offsetY = my - ratio*(my - offsetY);
+  draw();
+});
+
+window.addEventListener('resize', draw);
+</script>
+</body>
+</html>

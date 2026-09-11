@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name = "imu_xacro" params = "xyz">
+        <!-- 机器人的IMU部件 -->
+        <link name = "imu_link">
+            <!-- 部件的外观描述 -->
+            <visual>
+                <!-- 相对于它所属 link 原点的位置偏移 -->
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <!-- 几何形状 -->
+                <geometry>
+                    <box size="0.05 0.05 0.05"/>   <!-- 长0.05m 宽0.05m 高0.05m -->
+                </geometry>
+                <!-- 材质颜色 -->
+                <material name="black">
+                    <color rgba="0 0 0 1"/>
+                </material>
+            </visual>
+            <!-- 碰撞体积 (与visual几何一致) -->
+            <collision>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="0.05 0.05 0.05"/>
+                </geometry>
+            </collision>
+            <!-- 惯性 (质量与转动惯量，Gazebo仿真必需) -->
+            <inertial>
+                <mass value="0.01"/>
+                <!-- 正方体转动惯量: I = m/12*(a²+b²), 0.05³, m=0.01 -->
+                <inertia ixx="0.00000417" iyy="0.00000417" izz="0.00000417"
+                         ixy="0" ixz="0" iyz="0"/>
+            </inertial>
+        </link>
+        
+        <!-- 将IMU部件固定到机器人身体部件 -->
+        <joint name = "imu_link_joint" type = "fixed">
+            <parent link = "base_link"/>
+            <child link = "imu_link"/>
+            <origin xyz="${xyz}" rpy="0 0 0"/> <!-- child(imu_link) 相对于 parent(base_link) 的偏移 -->
+        </joint>
+    </xacro:macro>
+</robot>

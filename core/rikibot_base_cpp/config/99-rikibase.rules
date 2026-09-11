@@ -1,0 +1,11 @@
+# 底盘串口固定符号链接: CH340 (1a86:7523) -> /dev/rikibase
+# 作用: USB 枚举顺序变化时 ttyUSB 编号会漂移, 本规则让底盘口永远叫 /dev/rikibase
+# 雷达 (Silicon Labs CP2102, 10c4:ea60) 不会命中本规则
+#
+# 注意: 本规则必须装在【宿主机】上. Docker 容器内没有 udev 守护进程
+#       (udevadm control --reload 会报 Failed to send reload request),
+#       装在容器里不生效. 容器内请依赖 /dev/serial/by-id 路径,
+#       节点已内置该回退 (见 base_node.cpp 的 PortCandidates)
+#
+# 宿主机安装: bash scripts/create_udev_rules.sh   (只需一次)
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="rikibase"

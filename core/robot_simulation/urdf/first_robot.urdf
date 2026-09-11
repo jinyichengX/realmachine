@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+
+<robot name = "first_robot">
+    <!-- 机器人的身体部件 -->
+    <link name = "base_link">
+        <!-- 部件的外观描述 -->
+        <visual>
+            <!-- 相对于它所属 link 原点的位置偏移 -->
+            <origin xyz="0 0 0.1" rpy="0 0 0"/>
+            <!-- 几何形状 -->
+            <geometry>
+                <box size="0.5 0.3 0.1"/>   <!-- 长0.5m 宽0.3m 高0.1m -->
+            </geometry>
+            <!-- 材质颜色 -->
+            <material name="red">
+                <color rgba="1 0 0 0.2"/>    <!-- 红 绿 蓝 透明度，范围0~1 -->
+            </material>
+        </visual>
+        <!-- 惯性参数（Gazebo 仿真必须） -->
+        <inertial>
+            <origin xyz="0 0 0.1" rpy="0 0 0"/>
+            <mass value="1.0"/>
+            <inertia ixx="0.01" ixy="0.0" ixz="0.0"
+                     iyy="0.01" iyz="0.0"
+                     izz="0.01"/>
+        </inertial>
+    </link>
+
+    <!-- 机器人的IMU部件 -->
+    <link name = "imu_link">
+        <!-- 部件的外观描述 -->
+        <visual>
+            <!-- 相对于它所属 link 原点的位置偏移 -->
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <!-- 几何形状 -->
+            <geometry>
+                <box size="0.02 0.02 0.02"/>   <!-- 长0.02m 宽0.02m 高0.02m -->
+            </geometry>
+            <!-- 材质颜色 -->
+            <material name="gray">
+                <color rgba="0 0 0 0.5"/>
+            </material>
+        </visual>
+        <!-- 惯性参数（Gazebo 仿真必须） -->
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="0.00001" ixy="0.0" ixz="0.0"
+                     iyy="0.00001" iyz="0.0"
+                     izz="0.00001"/>
+        </inertial>
+    </link>
+
+    <!-- 机器人的关节，用于组合机器人的部件 -->
+    <joint name = "imu_joint" type = "fixed">
+        <parent link = "base_link"/>
+        <child link = "imu_link"/>
+        <origin xyz="0 0 0.03" rpy="0 0 0"/> <!-- child(imu_link) 相对于 parent(base_link) 的偏移 -->
+    </joint>
+</robot>

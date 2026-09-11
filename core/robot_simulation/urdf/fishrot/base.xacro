@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name = "base_xacro" params = "length width height">
+        <!-- 机器人的身体部件 -->
+        <link name = "base_link">
+            <!-- 部件的外观描述 -->
+            <visual>
+                <!-- 相对于它所属 link 原点的位置偏移 -->
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <!-- 几何形状 -->
+                <geometry>
+                    <box size="${length} ${width} ${height}"/>   <!-- 长lengthm 宽widthm 高heightm -->
+                </geometry>
+                <!-- 材质颜色 -->
+                <material name="red">
+                    <color rgba="1 0 0 0.5"/>    <!-- 红 绿 蓝 透明度，范围0~1 -->
+                </material>
+            </visual>
+             <!-- 碰撞体积 (与visual几何一致) -->
+            <collision>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="${length} ${width} ${height}"/>
+                </geometry>
+            </collision>
+            <!-- 惯性 (质量与转动惯量，Gazebo仿真必需) -->
+            <inertial>
+                <mass value="5"/>
+                <!-- 长方体转动惯量: Ixx=m/12*(y²+z²), Iyy=m/12*(x²+z²), Izz=m/12*(x²+y²) -->
+                <inertia ixx="${5.0/12.0 * (width*width + height*height)}"
+                         iyy="${5.0/12.0 * (length*length + height*height)}"
+                         izz="${5.0/12.0 * (length*length + width*width)}"
+                         ixy="0" ixz="0" iyz="0"/>
+            </inertial>
+        </link>
+
+    <!-- 添加虚拟部件，使机器人轮子贴合地面 -->
+    <link name = "base_footprint"/>
+
+    <joint name = "base_footprint_joint" type = "fixed">
+        <parent link = "base_footprint"/>
+        <child link = "base_link"/>
+        <origin xyz="0 0 0.112" rpy="0 0 0"/> <!-- base_link 在 base_footprint 上方 0.112m，轮子恰好贴地 -->
+    </joint>
+
+    </xacro:macro>
+</robot>

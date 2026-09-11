@@ -1,0 +1,46 @@
+2026-09-09 07:38:46,960 ERROR [orbbec.ni.device_streamset] failed to open device: 	Could not open "2bc5/0403@1/7": The Xiron USB subsystem failed to initialize!
+
+2026-09-09 07:40:53,891 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:53,891 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:54,347 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:54,347 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:54,610 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:54,610 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:54,873 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:54,873 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:55,136 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:55,136 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:55,401 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:55,402 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:55,665 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:55,665 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:55,928 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:55,928 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:56,191 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:56,191 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:56,454 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:56,454 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:56,718 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:56,718 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:56,981 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:56,981 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:57,244 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:57,244 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:57,509 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:57,509 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:57,772 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:57,772 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:58,035 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:58,035 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:58,298 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:58,298 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:58,561 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:58,562 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:58,824 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:58,825 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:59,088 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:59,089 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:59,352 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:59,352 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream
+2026-09-09 07:40:59,615 ERROR [orbbec.ni.LibuvcColorStream] unable to open libuvc device: Access denied
+2026-09-09 07:40:59,615 ERROR [orbbec.ni.device_streamset] could not open uvc-based color stream

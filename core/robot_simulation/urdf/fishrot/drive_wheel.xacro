@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name = "drive_wheel_xacro" params = "wheel_name xyz">
+        <link name = "${wheel_name}_link">
+            <!-- 部件的外观描述 -->
+            <visual>
+                <!-- 相对于它所属 link 原点的位置偏移 -->
+                <!-- 1.5708弧度，表示绕X轴旋转90度，把竖直的圆柱体放平成轮子 -->
+                <origin xyz="0 0 0" rpy="1.5708 0 0"/> 
+                <!-- 几何形状 -->
+                <geometry>
+                    <cylinder radius="0.031" length="0.04"/>   <!-- 半径0.031m 高0.04m -->
+                </geometry>
+                <!-- 材质颜色 -->
+                <material name="yellow">
+                    <color rgba="1 1 0 0.8"/>    <!-- 红 绿 蓝 透明度，范围0~1 -->
+                </material>
+            </visual>
+            <!-- 碰撞体积 (与visual几何一致) -->
+            <collision>
+                <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+                <geometry>
+                    <cylinder radius="0.031" length="0.04"/>
+                </geometry>
+            </collision>
+            <!-- 惯性 (质量与转动惯量，Gazebo仿真必需) -->
+            <inertial>
+                <mass value="0.1"/>
+                <!-- 圆柱体转动惯量 (r=0.031, l=0.04, 轴y: Iyy=mr²/2, Ixx=Izz=m(3r²+l²)/12) -->
+                <inertia ixx="0.0000374" iyy="0.0000481" izz="0.0000374"
+                         ixy="0" ixz="0" iyz="0"/>
+            </inertial>
+        </link>
+        <joint name = "${wheel_name}_joint" type = "continuous">
+            <parent link = "base_link"/>
+            <child link = "${wheel_name}_link"/>
+            <origin xyz="${xyz}" rpy="0 0 0"/> <!-- child(${${wheel_name}_link) 相对于 parent(base_link) 的偏移 -->
+            <axis xyz="0 1 0"/> <!-- 轴向为y轴 -->
+        </joint>
+        <!-- Gazebo Fortress 驱动轮接触物理参数，防打滑陷地 -->
+        <gazebo reference="${wheel_name}_link">
+            <collision>
+                <surface>
+                    <contact>
+                        <ode>
+                            <mu>20.0</mu>     <!-- 滚动方向摩擦系数，越大越不打滑 -->
+                            <mu2>20.0</mu2>   <!-- 横向侧滑摩擦系数 -->
+                            <kp>10000000000.0</kp> <!-- 接触刚度，轮子硬度 -->
+                            <kd>1.0</kd>      <!-- 接触阻尼，落地缓冲 -->
+                        </ode>
+                    </contact>
+                </surface>
+            </collision>
+        </gazebo>
+    </xacro:macro>
+</robot>

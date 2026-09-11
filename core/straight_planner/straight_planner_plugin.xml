@@ -1,0 +1,8 @@
+<library path="straight_planner_core">
+  <class
+    type="straight_planner::StraightPlanner"
+    base_class_type="nav2_core::GlobalPlanner"
+    name="straight_planner/StraightPlanner"
+    description="A simple straight line global planner that fails if line crosses obstacles."
+  />
+</library>

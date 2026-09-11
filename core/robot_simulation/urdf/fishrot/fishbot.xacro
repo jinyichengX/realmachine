@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+
+<robot name="fishbot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- 包含机器人的身体部件 -->
+    <xacro:include filename="base.xacro"/>
+    <xacro:include filename="imu.xacro"/>
+    <xacro:include filename="laser.xacro"/>
+    <xacro:include filename="drive_wheel.xacro"/>
+    <xacro:include filename="caster_wheel.xacro"/>
+    <xacro:include filename="fishbot.ros2_control.xacro"/>
+
+    <!-- 调用宏 -->
+    <xacro:base_xacro length="0.5" width="0.5" height="0.1"/> <!-- 机器人的身体部件 -->
+    <xacro:imu_xacro xyz = "0 0 0"/> <!-- 机器人的IMU部件 -->
+    <xacro:laser_xacro xyz = "0 0 0.1"/> <!-- 机器人的激光雷达部件 -->
+    <xacro:drive_wheel_xacro wheel_name="left_wheel"   xyz = "0  0.25 -0.081"/> <!-- 左驱动轮，侧边中心 -->
+    <xacro:drive_wheel_xacro wheel_name="right_wheel"  xyz = "0 -0.25 -0.081"/> <!-- 右驱动轮，侧边中心 -->
+    <xacro:caster_wheel_xacro wheel_name="front_caster" xyz = " 0.2 0 -0.081"/> <!-- 前万向轮 -->
+    <xacro:caster_wheel_xacro wheel_name="rear_caster"  xyz = "-0.2 0 -0.081"/> <!-- 后万向轮 -->
+
+    <xacro:fishbot_ros2_control/>
+
+    <!-- ==================== ros2_control 驱动插件 ==================== -->
+    <gazebo>
+        <plugin
+            filename="libgz_ros2_control-system.so"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+            <parameters>$(find robot_simulation)/config/ros2_control_params.yaml</parameters> <!--启动controller manager时加载的参数文件 -->
+        </plugin>
+    </gazebo>
+
+    <!-- ==================== 差速驱动插件（已废弃，改用 ros2_control） ==================== -->
+    <!--
+        数据流概览：
+          /cmd_vel (Twist)  ──→  ① 差速运动学解算  ──→  ② 驱动四个轮子关节  ──→  ③ Gazebo 物理引擎
+                                                                                        │
+                                                                       ④ 读取关节实际转角 ←──┘
+                                                                                        │
+                                /odom (Odometry) + /tf (odom→base_footprint)  ←──  ⑤ 反向推算里程计
+
+        步骤详解：
+        ① ros_gz_sim 内部桥接把 ROS 的 /cmd_vel 转发给 Gazebo 插件，插件收到 v_x, ω_z
+        ② 差速解算：v_left = (v_x - ω_z*separation/2)/radius, v_right = (v_x + ω_z*separation/2)/radius
+        ③ 对四个 *_wheel_joint 施加速度控制，Gazebo 物理引擎解算摩擦力、碰撞、重力，驱动真实物理运动
+        ④ 每个周期(30Hz)读取四个关节的实际转动角度（真实物理结果，打滑也会体现）
+        ⑤ 反向推算：delta_s = avg(左右轮行进量), delta_θ = (右-左)/separation，积分累加得到 odom 位姿
+        ⑥ 发布 /odom (nav_msgs/Odometry) 和 TF (odom→base_footprint)，供导航栈使用
+    
+    <gazebo>
+        <plugin
+            filename="libignition-gazebo-diff-drive-system.so"   
+            name="ignition::gazebo::systems::DiffDrive">        
+
+            <left_joint>left_front_wheel_joint</left_joint>
+            <left_joint>left_rear_wheel_joint</left_joint>
+
+            <right_joint>right_front_wheel_joint</right_joint>
+            <right_joint>right_rear_wheel_joint</right_joint>
+
+            <wheel_separation>0.5</wheel_separation>
+
+            <wheel_radius>0.032</wheel_radius>
+
+            <odom_publish_frequency>30</odom_publish_frequency>
+
+            <topic>cmd_vel</topic>
+        </plugin>
+    </gazebo>
+    -->
+    
+</robot>
