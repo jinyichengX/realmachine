@@ -49,6 +49,14 @@ class VideoFrameStream {
         bool IsRunning(void) const;
 
         std::uint32_t GetCurFrameId() {return current_frame_id_;}
+
+        ColorFrame GetLatestColorFrame() {
+            return lastest_cr_frame_;
+        }
+
+        DepthFrame GetLatestDepthFrame() {
+            return lastest_dph_frame_;
+        }
     private: 
         static void FrameReadyCallback(void* clientTag, astra_reader_t reader, astra_reader_frame_t frame);
         void FrameHandler(astra_reader_frame_t frame);

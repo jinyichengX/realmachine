@@ -89,22 +89,6 @@ void VideoFrameStream::FrameHandler(astra_reader_frame_t frame)
     astra_frame_get_colorframe(frame, &colorFrame);
     astra_frame_get_depthframe(frame, &depthFrame);
 
-    // 打印两流的帧号, 用于判断是否同步
-    astra_frame_index_t colorIndex = -1;
-    astra_frame_index_t depthIndex = -1;
-    if (colorFrame != nullptr) {
-        astra_colorframe_get_frameindex(colorFrame, &colorIndex);
-    }
-    if (depthFrame != nullptr) {
-        astra_depthframe_get_frameindex(depthFrame, &depthIndex);
-    }
-    std::cout << "color frameIndex: " << colorIndex 
-    << "  depth frameIndex: " << depthIndex 
-    << std::endl; 
-
-    if (colorFrame == nullptr) 
-        return; 
-
     astra_frame_index_t frameIndex; 
     astra_colorframe_get_frameindex(colorFrame, &frameIndex); 
     current_frame_id_ = frameIndex; 
@@ -115,42 +99,39 @@ void VideoFrameStream::FrameHandler(astra_reader_frame_t frame)
     /* color frame info */ 
     astra_image_metadata_t metadata; 
     astra_rgb_pixel_t*     colorData_rgb; 
-
     std::uint32_t colorByteLength; 
-
     astra_colorframe_get_data_rgb_ptr(colorFrame, &colorData_rgb, &colorByteLength); 
-
     astra_colorframe_get_metadata(colorFrame, &metadata); 
-#if 0    
-    // 打印第frameIndex帧图像中心点颜色 
-    int width    = metadata.width; 
-    int height   = metadata.height; 
-    size_t index = ((width * (height / 2)) + (width / 2)); 
 
-    astra_rgb_pixel_t middle = colorData_rgb[index]; 
-    std::cout << "color frameIndex: " << frameIndex 
-    << " r: " << static_cast<int>(middle.r) 
-    << " g: " << static_cast<int>(middle.g) 
-    << " b: " << static_cast<int>(middle.b) 
-    << std::endl; 
-    std::cout << "width: " << width 
-    << " height: " << height 
-    << " colorByteLength: " << colorByteLength << std::endl;
-#else 
-    // 更新最新帧
-    std::lock_guard<std::mutex> lock(mtx);
+    /* depth frame info */ 
+    astra_image_metadata_t depthMetadata; 
+    std::int16_t*          depthData; 
+    std::uint32_t depthByteLength; 
+    astra_depthframe_get_data_ptr(depthFrame, &depthData, &depthByteLength); 
+    astra_depthframe_get_metadata(depthFrame, &depthMetadata); 
 
+    this->mtx.lock();
+
+    // 更新最新颜色帧
     this->lastest_cr_frame_.w = metadata.width;
     this->lastest_cr_frame_.h = metadata.height;
     this->lastest_cr_frame_.stride = colorByteLength / metadata.height; //每行像素占用空间
     this->lastest_cr_frame_.pix_sz = lastest_cr_frame_.stride / metadata.width;
     this->lastest_cr_frame_.pix_fmt =
         static_cast<ColorFrame::pixel_format_t>(metadata.pixelFormat);
-
     this->lastest_cr_frame_.pix.resize(colorByteLength);
     std::memcpy(this->lastest_cr_frame_.pix.data(), colorData_rgb, colorByteLength);
-#endif 
-} 
+
+    // 更新最新深度帧
+    this->lastest_dph_frame_.w = depthMetadata.width;
+    this->lastest_dph_frame_.h = depthMetadata.height;
+    this->lastest_dph_frame_.stride = depthByteLength / depthMetadata.height; //每行像素占用空间
+    this->lastest_dph_frame_.dph_sz = lastest_dph_frame_.stride / depthMetadata.width;
+    this->lastest_dph_frame_.dph.resize(depthByteLength / sizeof(std::uint16_t));
+    std::memcpy(this->lastest_dph_frame_.dph.data(), depthData, depthByteLength);
+
+    this->mtx.unlock();
+}
 
 void VideoFrameStream::FrameReadyCallback(void* clientTag, astra_reader_t reader, astra_reader_frame_t frame) { 
     (void)reader;  
@@ -158,7 +139,6 @@ void VideoFrameStream::FrameReadyCallback(void* clientTag, astra_reader_t reader
     if (self == nullptr || frame == nullptr) 
         return; 
 
-    // 直接把 reader frame 交给 handler, 由它取出彩色和深度两路子帧
     self->FrameHandler(frame); 
 } 
 

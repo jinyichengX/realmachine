@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(image_transport REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -33,6 +34,7 @@ set_target_properties(rikibot_camera_node PROPERTIES
 ament_target_dependencies(rikibot_camera_node
   "rclcpp"
   "sensor_msgs"
+  "image_transport"
 )
 
 install(TARGETS rikibot_camera_node
