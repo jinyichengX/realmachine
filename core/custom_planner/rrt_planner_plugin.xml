@@ -1,0 +1,8 @@
+<library path="rrt_planner_core">
+  <class
+    type="rrt_planner::RRTPlannerPlugin"
+    base_class_type="nav2_core::GlobalPlanner"
+    name="rrt_planner/RRTPlannerPlugin"
+    description="RRT global planner: grows a random tree over the global costmap until it reaches the goal."
+  />
+</library>

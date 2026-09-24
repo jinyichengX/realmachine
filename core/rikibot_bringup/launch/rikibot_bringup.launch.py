@@ -34,10 +34,25 @@ def generate_launch_description():
 
         # x4 几何: base_link -> laser_link (0.0158, 0, 0.1706)
         Node(package='tf2_ros', executable='static_transform_publisher',
-             arguments=['0.0158', '0.0', '0.1706', '0', '0', '0',
+             arguments=['0.0158', '0.0', '0.21', '0', '0', '0',
                         'base_link', 'laser_link']),
         # # base_link -> imu_link
         # Node(package='tf2_ros', executable='static_transform_publisher',
         #      arguments=['0.038', '-0.008', '0.085', '0', '0', '0',
         #                 'base_link', 'imu_link']),
+
+        # 相机几何(实测): base_link -> camera_link
+        # x=前 0.12m, y=左 0.023m, z=上 0.17m; 相机平装, 无俯仰/偏航
+        Node(package='tf2_ros', executable='static_transform_publisher',
+             arguments=['--x', '0.12', '--y', '0.023', '--z', '0.17',
+                        '--roll', '0', '--pitch', '0', '--yaw', '0',
+                        '--frame-id', 'base_link',
+                        '--child-frame-id', 'camera_link']),
+        # camera_link -> 镜头光心: 固定旋转, 平移为 0
+        # 把"x前/y左/z上"转成相机的"z朝镜头外/x朝右/y朝下", 是常数, 不用测量
+        Node(package='tf2_ros', executable='static_transform_publisher',
+             arguments=['--x', '0', '--y', '0', '--z', '0',
+                        '--roll', '-1.5707963', '--pitch', '0', '--yaw', '-1.5707963',
+                        '--frame-id', 'camera_link',
+                        '--child-frame-id', 'camera_color_optical_frame']),
     ])

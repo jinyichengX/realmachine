@@ -112,7 +112,9 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:
   ros__parameters:
     use_sim_time: False
+    # 控制频率 20 Hz，即每 50 ms 计算一次速度指令
     controller_frequency: 20.0
+    # 速度死区阈值。低于该值的速度会被当作 0，避免电机在极小速度下抖动
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -121,11 +123,11 @@ controller_server:
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
-    # Progress checker parameters
-    progress_checker:
+    # Progress checker parameters 进度检查器：防止机器人在原地卡住
+    progress_checker: 
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.5 #10 秒内必须移动至少 0.5 米
+      movement_time_allowance: 10.0 #允许的时间窗口 10 秒 如果 10 秒内移动距离小于 0.5 米，就认为机器人卡住，触发失败处理（如重规划或恢复行为）
     # Goal checker parameters
     general_goal_checker:
       stateful: True
@@ -138,11 +140,11 @@ controller_server:
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 2.0 # 前进最大速度
+      max_vel_x: 0.1 # 前进最大速度
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      max_vel_theta: 0.5  # 最大角速度
       min_speed_xy: 0.0
-      max_speed_xy: 2.0 #合成平移速度矢量的模长上限，即 sqrt(vx² + vy²) ≤ max_speed_xy
+      max_speed_xy: 0.1 #合成平移速度矢量的模长上限，即 sqrt(vx² + vy²) ≤ max_speed_xy
       min_speed_theta: 0.0
       acc_lim_x: 2.5
       acc_lim_y: 0.0
@@ -176,42 +178,101 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      update_frequency: 10.0 # 代价地图更新频率，默认5HZ
+      publish_frequency: 4.0 # 代价地图发布频率，默认2HZ
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: False
-      rolling_window: true
-      width: 3
+      rolling_window: true # 跟着机器人移动的局部地图, 始终以 base_link 为中心的 3m x 3m 窗口
+      width: 3 # 只有这个窗口内的传感器数据会被保留; 注意车前方只有 1.5m
       height: 3
       resolution: 0.05
       # 车体 29cm(前后/x) x 25cm(横向/y), 半宽半长折算成矩形足迹
       footprint: "[[0.145, 0.125], [0.145, -0.125], [-0.145, -0.125], [-0.145, 0.125]]"
-      plugins: ["voxel_layer", "inflation_layer"]
+      plugins: ["voxel_layer", "inflation_layer"] # 顺序有讲究: inflation_layer 必须在最后
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
         inflation_radius: 0.40
+      # ================= 双源三维分层: 雷达 + 深度点云 =================
+      #   scan        雷达(LaserScan), 它的点全部落在 z=0.21 那一层
+      #   depth_cloud 深度点云(PointCloud2), 负责雷达扫描面以下的矮障碍
+      #
+      # 为什么必须是 voxel_layer(而不是 obstacle_layer):
+      #   高度过滤和分层全靠体素网格。依据 nav2 头文件 voxel_layer.hpp 里的
+      #   worldToMap3D(): wz < origin_z 直接 return false, 超出网格上界的点同样丢弃
+      #   —— 网格边界本身就是一道高度滤波器。分层结果:
+      #     雷达     z=0.21         -> 第 3 层 (0.20~0.25)
+      #     矮障碍   z=0.05~0.17    -> 第 0~2 层
+      #   雷达的清空射线是水平的, 且 VoxelLayer 重写了 raytraceFreespace 按体素清,
+      #   所以它只清自己那一层, 碰不到下面几层 —— 矮障碍的标记不会被擦掉。
+      #
+      # 高度过滤有两道, 两道都要:
+      #   1) 每个源的 min/max_obstacle_height —— 过滤发生在观测缓冲区里, 过滤的是
+      #      "合法命中点", 而**标记和清空都用过滤后的点**。所以地面点(z≈0)从源头
+      #      就不参与: 既不标记, 也不会产生向下的清空射线。
+      #      (这两个参数是源级的, 已从 observation_buffer.hpp 的构造函数签名确认)
+      #   2) 体素网格的 origin_z / z_voxels —— 决定点落在哪个体素。
+      #
+      # 最关键的一条: raytrace_min_range = 0.6
+      #   相机 0.6m 以内测不到障碍。这一段既不该标记、也不该清空 —— 于是标记天然保留:
+      #   车即使贴到 0.3m, 障碍也不会从代价地图上消失, 规划器就不会改出"穿过去"的
+      #   新路径(那正是之前"先绕开、靠近了又撞"的机理)。
+      #   同时深度源能一直标到 0.6m —— 点云保留真实高度, 不像虚拟激光那样受
+      #   "图像行带"限制(行带在 0.95m 处就漏检, 数学上无解)。
+      #
+      # depth_cloud 的开关: 这个源**始终**保留, 是否生效由启动参数 use_depth_scan 控制。
+      #   设 false 时转换节点不启动, /camera/depth/points 没有数据, 这个源就是"哑的",
+      #   代价地图退化成纯雷达 —— 对照实验只需一条命令, 不用改文件。
+      #   所以看到 depth_cloud 没有数据 / 没有发布者, 属于预期, 不是故障。
+      #
+      # unknown_threshold 故意不设: 默认 15, 而网格只有 4 层(一列最多 4 个被占),
+      #   永远触发不了。若手动设成 <=4, 整列会被判成"未知", 障碍反而消失。
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
         publish_voxel_map: True
-        origin_z: 0.0
+        # 网格覆盖 0.05~0.35m (6 层 x 0.05)。用 6 层而不是 4 层, 是为了给雷达的
+        # 0.21 留足余量: 4 层时上界只有 0.25, 一旦雷达实测高度略高, 它自己的点就会
+        # 掉出网格、整个雷达失效。层数多一层几乎不增加算力。
+        origin_z: 0.05
         z_resolution: 0.05
-        z_voxels: 16
-        max_obstacle_height: 2.0
+        z_voxels: 6
         mark_threshold: 0
-        observation_sources: scan
+        observation_sources: scan depth_cloud
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          data_type: "LaserScan"
           clearing: True
           marking: True
-          data_type: "LaserScan"
+          # 雷达源**不设**高度上界: LaserScan 的点全在雷达实际高度上, 一旦上界比
+          # 实际高度低, 整条雷达数据会被丢掉 —— 这个耦合太危险。高度范围交给体素网格管。
+          min_obstacle_height: 0.0
+          max_obstacle_height: 1.0
+          observation_persistence: 0.0
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
+        depth_cloud:
+          topic: /camera/depth/points
+          data_type: "PointCloud2"
+          # 局部图关掉 clearing: 10Hz 下逐点射线太贵。局部图是滚动窗口,
+          # 车走开后旧标记自然滚出去。(全局图开 clearing, 见 global_costmap)
+          clearing: False
+          marking: True
+          min_obstacle_height: 0.05
+          max_obstacle_height: 0.25
+          # observation_persistence 必须保持 0.0! 它的语义是"观测数据在缓冲区里保留几秒",
+          # persistence>0 时 nav2 的 ObservationBuffer 是**追加**而不是替换: 本点云 22Hz、
+          # 每帧约 4800 点, 保留 2 秒就等于缓冲区里堆 20 万个点, 每轮更新都要全部变换+
+          # 射线清空一遍 —— 代价地图直接卡死, 表现就是"障碍完全不出现"。
+          # 障碍不消失靠的是下面的 raytrace_min_range=0.6(盲区段落不被清空), 不需要这个。
+          observation_persistence: 0.0
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.6
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.6
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
@@ -220,39 +281,65 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 1.0 # 每秒重新计算一次(叠加静态层/障碍层/膨胀层)
+      publish_frequency: 1.0 # 通常 publish <= update
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: False
       # 车体 29cm(前后/x) x 25cm(横向/y)
       footprint: "[[0.145, 0.125], [0.145, -0.125], [-0.145, -0.125], [-0.145, 0.125]]"
       resolution: 0.05
-      track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
+      track_unknown_space: true # true: 未知区域标记为 NO_INFORMATION, 规划器会避开
+      plugins: ["static_layer", "voxel_layer", "inflation_layer"] # inflation_layer 必须最后
+      # 和局部代价地图完全一致, 详细说明见 local_costmap 里那段。唯一区别:
+      #   depth_cloud 的 clearing=True —— 全局图只有 1Hz(逐点射线算力够), 而且它
+      #   不滚动、会长期存在, 必须能把"已经搬走的障碍"清掉, 否则就成了永久幻影障碍。
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
-        observation_sources: scan
+        publish_voxel_map: True
+        origin_z: 0.05
+        z_resolution: 0.05
+        z_voxels: 6
+        mark_threshold: 0
+        # depth_cloud 必须也在这里: 否则全局规划器看不到矮障碍, 会一直给出
+        # 一条穿过障碍物的路径, 局部控制器躲不掉, 最后就是撞上去。
+        observation_sources: scan depth_cloud
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          data_type: "LaserScan"
           clearing: True
           marking: True
-          data_type: "LaserScan"
+          # 雷达源**不设**高度上界: LaserScan 的点全在雷达实际高度上, 一旦上界比
+          # 实际高度低, 整条雷达数据会被丢掉 —— 这个耦合太危险。高度范围交给体素网格管。
+          min_obstacle_height: 0.0
+          max_obstacle_height: 1.0
+          observation_persistence: 0.0
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
-      static_layer:
+        depth_cloud:
+          topic: /camera/depth/points
+          data_type: "PointCloud2"
+          clearing: True
+          marking: True
+          min_obstacle_height: 0.05
+          max_obstacle_height: 0.25
+          # 同局部图: 必须 0.0, 详见 local_costmap 里的说明(persistence>0 会堆 20 万个点)
+          observation_persistence: 0.0
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.6
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.6
+      static_layer: # 静态地图层(来自 map_server 的 pgm 地图)
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.40
+        cost_scaling_factor: 3.0 # 值越大代价下降越快, 膨胀区更"陡"
+        inflation_radius: 0.40 # 膨胀半径, 单位米
       always_send_full_costmap: True
-
 map_server:
   ros__parameters:
     use_sim_time: False
@@ -277,6 +364,10 @@ planner_server:
       tolerance: 0.5
       use_astar: false
       allow_unknown: true
+    # GridBased:
+    #   plugin: "rrt_planner/RRTPlannerPlugin"
+    #   step_size: 0.5    # 单次生长步长（m）
+    #   iter_max: 5000    # 最大迭代次数
 
 smoother_server:
   ros__parameters:

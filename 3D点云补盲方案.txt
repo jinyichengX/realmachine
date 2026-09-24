@@ -1,0 +1,279 @@
+完全针对你的场景（4 核 ARM、Nav2、0.21m 激光雷达、0.17m 深度相机）设计，核心目标是**Z 轴彻底分层、不互擦、死区障碍不消失**，同时严格控制算力，是工业移动机器人的标准落地做法。
+
+---
+
+## 一、方案核心思路
+
+### 本质逻辑
+
+用「**激光雷达负责中高空常规障碍 + 深度点云负责地面矮障碍**」的双分层方案，把两个传感器的障碍标记彻底分到不同的 Z 轴体素层里，从根源上杜绝互相擦除。
+
+- 激光雷达：工作在 z≈0.21m 层，负责 0~2.5m 内、常规高度的障碍，同时清空自己层的空闲空间
+- 深度点云：只保留 z∈[0.02, 0.15] m 的地面矮障碍点，工作在最底部的体素层，只标记障碍、不清空
+- 两层高度差 0.06m 以上，超过 0.05m 的体素分辨率，**完全不在同一层，雷达的清空射线永远碰不到深度标记的矮障碍**
+
+### 为什么比虚拟激光方案好
+
+表格
+
+| 维度 | 2D 虚拟激光方案 | 3D 点云分层方案 |
+| --- | --- | --- |
+| Z 轴分层 | 失效（几乎同层） | 彻底分层（差 3 个体素层） |
+| 进入 0.6m 死区 | 障碍被雷达清空，直接消失 | 障碍标记保留在底层，不会消失 |
+| 算力 | 低（640 个点） | 可控（滤波后约 800~1200 个点，ARM 无压力） |
+| 误检率 | 易受地面噪声影响 | 高度滤波后极低 |
+
+
+## 二、分步实施（直接对应你的配置修改）
+
+### 第一步：换掉转换节点，改成「点云 + 前置滤波」
+
+**核心原则：先滤波，再进代价地图**。原始深度点云 90% 以上都是无效点（高空、地面、死区），提前裁掉，算力比虚拟激光方案只高一点点。
+
+#### 1. 依赖包
+
+确保安装了 `pcl_ros`（ROS2 标准点云处理包，轻量高效），这是工业界的标准工具。
+
+#### 2. Launch 文件修改（对应你的 navigation2.launch.py）
+
+删掉原来的 `depthimage_to_laserscan` 整个节点，替换为下面的**两级滤波链路**：
+# ===== 深度点云预处理链路：只保留地面矮障碍的有效点 =====
+# 1. 距离范围滤波：裁掉0.6m死区和3m外的无效数据
+range_filter = Node(
+    package='pcl_ros',
+    executable='passthrough_filter_node',
+    name='depth_range_filter',
+    parameters=[{
+        'input_frame': 'camera_link',
+        'output_frame': 'camera_link',
+        'filter_field_name': 'z',  # 注意：相机坐标系z朝前，这里滤的是深度距离
+        'filter_limit_min': 0.6,
+        'filter_limit_max': 3.0,
+        'keep_organized': False,
+    }],
+    remappings=[
+        ('input', '/camera/depth/points'),  # 相机驱动原生点云
+        ('output', '/depth_cloud_ranged'),
+    ],
+)
+
+# 2. 高度范围滤波：核心！只保留地面以上2cm~15cm的矮障碍点
+#    高于15cm的雷达能看到，不用深度管；低于2cm的是地面噪声，直接滤掉
+height_filter = Node(
+    package='pcl_ros',
+    executable='passthrough_filter_node',
+    name='depth_height_filter',
+    parameters=[{
+        'input_frame': 'camera_link',
+        'output_frame': 'camera_link',
+        'filter_field_name': 'y',  # 相机坐标系y朝下，对应车体的z高度
+        'filter_limit_min': -0.15,  # 对应车体z=0.02m左右，按需微调
+        'filter_limit_max': -0.02,  # 对应车体z=0.15m左右
+        'keep_organized': False,
+    }],
+    remappings=[
+        ('input', '/depth_cloud_ranged'),
+        ('output', '/depth_cloud_filtered'),
+    ],
+)
+
+# 3. 可选：体素下采样，进一步减少点数量，算力紧张就加上
+# voxel_filter = Node(
+#     package='pcl_ros',
+#     executable='voxel_grid_node',
+#     name='depth_voxel_filter',
+#     parameters=[{
+#         'leaf_size': 0.05,  # 和costmap分辨率对齐
+#     }],
+#     remappings=[
+#         ('input', '/depth_cloud_filtered'),
+#         ('output', '/depth_cloud_final'),
+#     ],
+# )
+最后在 `return LaunchDescription([...])` 里把这两个节点加进去，替换原来的 depth_to_scan。
+
+> 
+> 注：如果你的相机坐标系方向不同，调整 `filter_field_name` 和上下限即可，核心是**只保留地面以上 15cm 以内的点**。
+
+### 第二步：局部代价地图配置修改
+
+核心改动：把 `depth_scan` 源从 `LaserScan` 改成 `PointCloud2`，关闭深度源的清空能力，优化体素层数。
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0
+      publish_frequency: 4.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: False
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      footprint: "[[0.145, 0.125], [0.145, -0.125], [-0.145, -0.125], [-0.145, 0.125]]"
+      plugins: ["voxel_layer", "inflation_layer"]
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.40
+
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True
+        publish_voxel_map: True
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 6  # 优化：从16层减到6层，只覆盖0~0.3m高度，足够用，省算力
+        max_obstacle_height: 0.3  # 只处理0.3m以下的体素，更高的直接忽略
+        mark_threshold: 1  # 1个有效点就标记，避免漏检矮障碍
+        observation_sources: scan depth_cloud
+
+        # ========== 激光雷达源：中高空，负责标记+清空 ==========
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+        # ========== 深度点云源：地面矮层，只标记、不清空 ==========
+        depth_cloud:
+          topic: /depth_cloud_filtered
+          data_type: "PointCloud2"  # 核心：改成3D点云类型
+          clearing: False  # 关键！深度源只标记障碍，不清空
+          marking: True
+          min_obstacle_height: 0.02  # 和滤波对应，低于2cm的点不标记
+          max_obstacle_height: 0.15 # 高于15cm的点不标记，和雷达分层
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.6
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+### 第三步：全局代价地图同步修改
+
+全局规划器也必须能看到矮障碍，否则全局路径直接穿过去，局部再躲也来不及。配置和局部保持一致：
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # ... 其他参数不变 ...
+      plugins: ["static_layer", "voxel_layer", "inflation_layer"]
+      
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True
+        publish_voxel_map: True
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 6
+        max_obstacle_height: 0.3
+        mark_threshold: 1
+        observation_sources: scan depth_cloud
+
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+        depth_cloud:
+          topic: /depth_cloud_filtered
+          data_type: "PointCloud2"
+          clearing: False
+          marking: True
+          min_obstacle_height: 0.02
+          max_obstacle_height: 0.15
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.6
+      
+      # ... 其他层不变 ...
+## 三、关键工程设计说明（为什么这么设）
+
+### 1. 为什么深度源 `clearing: False`
+
+这是工程上的保守最佳实践：
+
+- 深度相机只负责「标记地面矮障碍」，清空的工作不需要它做
+- 如果开了 clearing，深度射线从 0.17m 高的相机出发，向下扫到地面障碍，射线会穿过中间的体素层，有可能误清空上层的有效标记
+- 地面层的旧障碍，机器人走开后会随滚动窗口自然移出，不需要主动清空
+
+### 2. 为什么 `z_voxels` 从 16 减到 6
+
+- 我们只关心 0~0.3m 高度的矮障碍，6 层 ×0.05m=0.3m 完全覆盖
+- 层数越少，体素更新的计算量越小，对 ARM 平台越友好
+- 激光雷达的 0.21m 刚好落在第 4~5 层，深度的 0~0.15m 落在第 0~3 层，天然分层
+
+### 3. 为什么算力可控
+
+原始深度点云一般是 320×240=76800 个点，经过两级滤波后：
+
+- 距离滤波裁掉 0.6m 以内和 3m 以外，剩下约 60%
+- 高度滤波只保留中间 15cm 高度的条带，剩下约 10%
+- 最终只剩约 4000 个点，再加上体素下采样能到 1000 点以内
+- 计算量和 640 线的虚拟激光基本在同一量级，4 核 ARM 完全扛得住
+
+---
+
+## 四、验证与调优步骤
+
+### 1. 基础验证
+
+```
+# 看点云有没有输出、频率多少
+ros2 topic hz /depth_cloud_filtered
+
+# 看点云数量是否正常（正常point_step×width≈几百到几千）
+ros2 topic echo --no-arrays /depth_cloud_filtered
+```
+
+### 2. 分层验证（RViz）
+
+1. 添加 `VoxelGrid` 插件，订阅 `/local_costmap/voxel_grid`
+2. 把显示高度调到 0~0.15m：能看到深度标记的矮障碍体素
+3. 把显示高度调到 0.2~0.25m：能看到雷达标记的障碍体素
+4. ✅ 正常情况：两层体素完全分开，没有重叠
+
+### 3. 实机场景验证
+
+放一个 10cm 高的箱子在机器人正前方，缓慢推进：
+
+1. 距离 > 0.6m：代价地图上有障碍，规划器绕开
+2. 距离 < 0.6m：观察代价地图，**障碍标记不会消失**（核心验证点）
+3. 规划器始终保持绕开，不会直接穿过去
+
+### 4. 参数微调
+
+- 如果地面点误标记多：把 `min_obstacle_height` 从 0.02 调到 0.03~0.04
+- 如果矮障碍漏检：把 `max_obstacle_height` 从 0.15 调到 0.18，同时把高度滤波上限对应放宽
+- 如果算力紧张：加上体素下采样节点，或者降低 `z_voxels` 到 4 层
+
+---
+
+## 五、常见坑与避坑
+
+1. **坐标系方向搞错**
+深度相机的坐标系通常是「z 朝前、x 朝右、y 朝下」，高度滤波要滤 y 轴，不是 z 轴。搞反了会把所有点都滤掉，等于没数据。
+2. **TF 高度不准**`base_link` → `camera_link` 的静态 TF 高度必须和实机安装高度一致，差 1cm 都会导致高度滤波偏移，要么漏障碍要么误检地面。
+3. **时间不同步**
+点云和 TF 时间戳差太大，会导致变换失败，点云插不到正确的体素里。确保相机驱动和 TF 的时间戳对齐。
+4. **全局地图忘了改**
+只改局部不改全局，会出现「全局规划穿障碍，局部紧急绕」的抖动情况，体验很差，两层必须同步配置。
+
+---
+
+## 最终效果
+
+这套方案落地后，你之前遇到的「先绕开、靠近了又撞上去」的问题会彻底解决：
+
+- 远距离：两个传感器分别标记不同高度的障碍，互不干扰
+- 进入 0.6m 死区：深度相机停止更新，但地面层的障碍标记一直保留，雷达的清空射线碰不到这一层
+- 规划器全程认为那里有障碍，始终规划绕行动作，不会出现突然穿过去的情况

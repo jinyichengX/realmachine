@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相机 → base_link TF 量测工具</title>
+<style>
+  :root {
+    --surface: #ffffff;
+    --surface-muted: #f7f7fa;
+    --text: #1f2330;
+    --text-muted: #6b7280;
+    --border: #e4e7ee;
+    --brand: #6d4aff;
+    --accent: #2dd4bf;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --weight-medium: 540;
+    --radius: 8px;
+    --radius-card: 12px;
+    --radius-full: 999px;
+    --spacer-4: 4px;
+    --spacer-8: 8px;
+    --spacer-12: 12px;
+    --spacer-16: 16px;
+    --spacer-20: 20px;
+    --spacer-24: 24px;
+    --text-caption: 12px/18px;
+    --text-code: 13px/20px;
+    --text-body: 14px/20px;
+    --text-title: 16px/24px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #14161d;
+      --surface-muted: #1c1f28;
+      --text: #f5f5f7;
+      --text-muted: #9aa0ac;
+      --border: #2c303c;
+      --brand: #9d7bff;
+      --accent: #5eead4;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface-muted);
+    font-family: var(--font-sans);
+    color: var(--text);
+    min-height: 100vh;
+    padding: var(--spacer-20);
+  }
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+    background: var(--surface);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border);
+    padding: var(--spacer-24);
+  }
+  .title { font: var(--weight-medium) var(--text-title) var(--font-sans); margin: 0 0 var(--spacer-4) 0; }
+  .subtitle { font: var(--text-caption); color: var(--text-muted); margin: 0 0 var(--spacer-16) 0); }
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    height: 460px;
+    background: var(--surface-muted);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: var(--spacer-16);
+  }
+  .canvas-wrap canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  .canvas-wrap canvas:active { cursor: grabbing; }
+  .legend {
+    position: absolute;
+    top: var(--spacer-12);
+    left: var(--spacer-12);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font: var(--text-caption);
+    color: var(--text-muted);
+    background: var(--surface);
+    padding: var(--spacer-8) var(--spacer-12);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .legend .item { display: flex; align-items: center; gap: 8px; }
+  .legend .dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .legend .dot.box { width: 12px; height: 12px; border-radius: 2px; }
+  .tip {
+    position: absolute;
+    bottom: var(--spacer-12);
+    right: var(--spacer-12);
+    font: var(--text-caption);
+    color: var(--text-muted);
+    background: var(--surface);
+    padding: 4px var(--spacer-8);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+  }
+  .fallback {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: var(--spacer-8);
+    font: var(--text-body);
+    color: var(--text-muted);
+    text-align: center;
+    padding: var(--spacer-20);
+    background: var(--surface-muted);
+  }
+  .input-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacer-12); margin-bottom: var(--spacer-16); }
+  .input-group { display: flex; flex-direction: column; gap: var(--spacer-4); }
+  .input-group label {
+    font: var(--text-caption);
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .input-group label .axis { font-family: var(--font-mono); font-weight: var(--weight-medium); }
+  .input-group label .x { color: #e53935; }
+  .input-group label .y { color: #4caf50; }
+  .input-group label .z { color: #2196f3; }
+  .input-group input {
+    font: var(--text-code) var(--font-mono);
+    padding: var(--spacer-8) var(--spacer-12);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-muted);
+    color: var(--text);
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.12s;
+  }
+  .input-group input:focus { outline: none; border-color: var(--brand); }
+  .code-block {
+    position: relative;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--spacer-12) var(--spacer-16);
+    font: var(--text-code) var(--font-mono);
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text);
+    min-height: 60px;
+  }
+  .copy-btn {
+    position: absolute;
+    top: var(--spacer-8);
+    right: var(--spacer-8);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 4px var(--spacer-12);
+    font: var(--text-caption) var(--font-sans);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .copy-btn:hover { border-color: var(--brand); color: var(--brand); }
+  .copy-btn.copied { border-color: var(--accent); color: var(--accent); }
+  .hint {
+    font: var(--text-caption);
+    color: var(--text-muted);
+    margin-top: var(--spacer-12);
+    line-height: 1.7;
+  }
+  .hint b { color: var(--brand); font-weight: var(--weight-medium); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="title">相机 → base_link 3D 量测工具</div>
+  <div class="subtitle">拖动 3D 视图旋转视角 · 改 X/Y/Z 让紫色相机盒子移动到真实安装位置 · 底部自动生成 launch 代码</div>
+
+  <div class="canvas-wrap">
+    <canvas id="tf-canvas"></canvas>
+    <div class="legend">
+      <div class="item"><span class="dot" style="background:#e53935"></span>X 前(红)</div>
+      <div class="item"><span class="dot" style="background:#4caf50"></span>Y 左(绿)</div>
+      <div class="item"><span class="dot" style="background:#2196f3"></span>Z 上(蓝)</div>
+      <div class="item"><span class="dot box" style="background:#6d4aff"></span>相机光心</div>
+    </div>
+    <div class="tip">鼠标拖动旋转 · 滚轮缩放</div>
+    <div class="fallback" id="tf-fallback">
+      <div>3D 渲染需要联网加载 Three.js</div>
+      <div style="font-size:12px;color:var(--text-muted)">请检查网络后刷新,或直接用下方输入框+代码区</div>
+    </div>
+  </div>
+
+  <div class="input-row">
+    <div class="input-group">
+      <label><span>X · 前后(米)</span><span class="axis x">前为正</span></label>
+      <input type="number" id="tf-x" value="0.10" step="0.01" />
+    </div>
+    <div class="input-group">
+      <label><span>Y · 左右(米)</span><span class="axis y">左为正</span></label>
+      <input type="number" id="tf-y" value="0.00" step="0.01" />
+    </div>
+    <div class="input-group">
+      <label><span>Z · 上下(米)</span><span class="axis z">上为正</span></label>
+      <input type="number" id="tf-z" value="0.20" step="0.01" />
+    </div>
+  </div>
+
+  <div class="code-block">
+    <button class="copy-btn" id="copy-btn">复制</button>
+    <code id="tf-code"></code>
+  </div>
+
+  <div class="hint">
+    量测基准:<b>base_link 原点</b>(底盘几何中心或驱动轮轴中点,图中红绿蓝三轴交点)<br/>
+    量测目标:<b>相机镜头光心</b>(镜头玻璃正中心,不是外壳)<br/>
+    单位:米,精度 1cm 足够。紫色盒子代表相机,改输入框它会移动;虚线是 base_link → camera_link 的位移向量。
+  </div>
+</div>
+
+<script type="module">
+function updateCode() {
+  const x = (parseFloat(document.getElementById('tf-x').value) || 0).toFixed(3);
+  const y = (parseFloat(document.getElementById('tf-y').value) || 0).toFixed(3);
+  const z = (parseFloat(document.getElementById('tf-z').value) || 0).toFixed(3);
+  document.getElementById('tf-code').textContent =
+    "# base_link -> camera_link  (相机机械安装位姿: x=" + x + " y=" + y + " z=" + z + ")\n" +
+    "Node(package='tf2_ros', executable='static_transform_publisher',\n" +
+    "     arguments=['" + x + "', '" + y + "', '" + z + "', '0', '0', '0',\n" +
+    "                'base_link', 'camera_link']),\n" +
+    "\n" +
+    "# camera_link -> camera_color_optical_frame  (ROS 光学帧惯例: z 前 x 右 y 下)\n" +
+    "Node(package='tf2_ros', executable='static_transform_publisher',\n" +
+    "     arguments=['0', '0', '0', '-1.571', '0', '-1.571',\n" +
+    "                'camera_link', 'camera_color_optical_frame']),\n" +
+    "\n" +
+    "# camera_link -> camera_depth_optical_frame  (与 color 平行, 偏一个基线 7.5cm)\n" +
+    "Node(package='tf2_ros', executable='static_transform_publisher',\n" +
+    "     arguments=['0', '0.075', '0', '-1.571', '0', '-1.571',\n" +
+    "                'camera_link', 'camera_depth_optical_frame']),";
+}
+
+const copyBtn = document.getElementById('copy-btn');
+copyBtn.addEventListener('click', function() {
+  const txt = document.getElementById('tf-code').textContent;
+  const done = function() {
+    copyBtn.textContent = '已复制';
+    copyBtn.classList.add('copied');
+    setTimeout(function() {
+      copyBtn.textContent = '复制';
+      copyBtn.classList.remove('copied');
+    }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done).catch(done);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(ta);
+    done();
+  }
+});
+
+['tf-x', 'tf-y', 'tf-z'].forEach(function(id) {
+  document.getElementById(id).addEventListener('input', function() {
+    updateCode();
+    if (window.__tf3d && window.__tf3d.updateCam) window.__tf3d.updateCam();
+  });
+});
+updateCode();
+
+// Three.js 加载 (多 CDN 容错:jsdelivr -> unpkg -> esm.sh)
+let THREE, OrbitControls;
+const CDN_LIST = [
+  {
+    three: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+    orbit: 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js'
+  },
+  {
+    three: 'https://unpkg.com/three@0.160.0/build/three.module.js',
+    orbit: 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js'
+  },
+  {
+    three: 'https://esm.sh/three@0.160.0',
+    orbit: 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'
+  }
+];
+
+async function tryLoad3D() {
+  for (let i = 0; i < CDN_LIST.length; i++) {
+    try {
+      const threeMod = await import(CDN_LIST[i].three);
+      THREE = threeMod;
+      const orbitMod = await import(CDN_LIST[i].orbit);
+      OrbitControls = orbitMod.OrbitControls;
+      init3D();
+      return;
+    } catch (e) {
+      console.warn('CDN[' + i + '] failed:', e.message);
+    }
+  }
+  document.getElementById('tf-fallback').style.display = 'flex';
+}
+tryLoad3D();
+
+function init3D() {
+  const canvas = document.getElementById('tf-canvas');
+  const scene = new THREE.Scene();
+  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+
+  const cam = new THREE.PerspectiveCamera(45, 1, 0.01, 50);
+  cam.up.set(0, 0, 1);
+  cam.position.set(0.7, -0.9, 0.55);
+  cam.lookAt(0, 0, 0.1);
+
+  const controls = new OrbitControls(cam, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.target.set(0, 0, 0.1);
+  controls.up.set(0, 0, 1);
+  controls.minDistance = 0.3;
+  controls.maxDistance = 3;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.5);
+  dir.position.set(1, -1.2, 2);
+  scene.add(dir);
+
+  // 地面网格
+  const grid = new THREE.GridHelper(1.5, 30, 0xb0b4c0, 0xd8dce4);
+  grid.rotation.x = Math.PI / 2;
+  scene.add(grid);
+
+  // 车体
+  const carBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.40, 0.25, 0.18),
+    new THREE.MeshLambertMaterial({ color: 0x6b7280, transparent: true, opacity: 0.4 })
+  );
+  carBody.position.set(0, 0, 0.09);
+  scene.add(carBody);
+  const carEdges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.40, 0.25, 0.18)),
+    new THREE.LineBasicMaterial({ color: 0x4b5563 })
+  );
+  carEdges.position.copy(carBody.position);
+  scene.add(carEdges);
+
+  // 车头箭头
+  const fwd = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0.22, 0, 0.09), 0.08, 0x9b1c1c, 0.03, 0.015);
+  scene.add(fwd);
+
+  // 4 个轮子
+  function makeWheel(wx, wy) {
+    const w = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 0.025, 18),
+      new THREE.MeshLambertMaterial({ color: 0x374151 })
+    );
+    w.rotation.x = Math.PI / 2;
+    w.position.set(wx, wy, 0.04);
+    return w;
+  }
+  [[0.15, 0.115], [0.15, -0.115], [-0.15, 0.115], [-0.15, -0.115]].forEach(function(p) {
+    scene.add(makeWheel(p[0], p[1]));
+  });
+
+  // base_link 坐标轴
+  function axisHelper(dir, color) {
+    return new THREE.ArrowHelper(dir, new THREE.Vector3(0,0,0), 0.22, color, 0.05, 0.025);
+  }
+  scene.add(axisHelper(new THREE.Vector3(1,0,0), 0xe53935));
+  scene.add(axisHelper(new THREE.Vector3(0,1,0), 0x4caf50));
+  scene.add(axisHelper(new THREE.Vector3(0,0,1), 0x2196f3));
+
+  // 相机盒子
+  const camBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.04, 0.025),
+    new THREE.MeshLambertMaterial({ color: 0x6d4aff })
+  );
+  scene.add(camBox);
+  // 相机镜头
+  const lens = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.01, 16),
+    new THREE.MeshLambertMaterial({ color: 0x1f2330 })
+  );
+  lens.rotation.z = Math.PI / 2;
+  camBox.add(lens);
+  lens.position.set(0.028, 0, 0);
+
+  // 位移连线
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+  const lineMat = new THREE.LineDashedMaterial({ color: 0x6d4aff, dashSize: 0.02, gapSize: 0.012 });
+  const line = new THREE.Line(lineGeo, lineMat);
+  scene.add(line);
+
+  function updateCam() {
+    const x = parseFloat(document.getElementById('tf-x').value) || 0;
+    const y = parseFloat(document.getElementById('tf-y').value) || 0;
+    const z = parseFloat(document.getElementById('tf-z').value) || 0;
+    camBox.position.set(x, y, z);
+    lineGeo.setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(x, y, z)]);
+    lineGeo.attributes.position.needsUpdate = true;
+    line.computeLineDistances();
+  }
+  window.__tf3d = { updateCam: updateCam };
+  updateCam();
+
+  function resize() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    renderer.setSize(w, h, false);
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(canvas);
+  resize();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, cam);
+  }
+  animate();
+}
+</script>
+</body>
+</html>
