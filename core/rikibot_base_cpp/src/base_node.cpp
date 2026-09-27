@@ -333,19 +333,29 @@ void * parse_thread(void * arg)
             ::memcpy(&voltage, &data[0], sizeof(float));
             node->BatteryPublish(voltage);
         } else if (topic == 126 && data.size() >= 72) {   // handle raw_imu topic
-            // double ax, ay, az, gx, gy, gz, mx, my, mz;
-            // ::memcpy(&ax, &data[0], 8);
-            // ::memcpy(&ay, &data[8], 8);
-            // ::memcpy(&az, &data[16], 8);
-            // ::memcpy(&gx, &data[24], 8);
-            // ::memcpy(&gy, &data[32], 8);
-            // ::memcpy(&gz, &data[40], 8);
-            // ::memcpy(&mx, &data[48], 8);
-            // ::memcpy(&my, &data[56], 8);
-            // ::memcpy(&mz, &data[64], 8);
-            // std::cout << "imu: acc=(" << ax << "," << ay << "," << az
-            //           << ") gyro=(" << gx << "," << gy << "," << gz
-            //           << ") mag=(" << mx << "," << my << "," << mz << ")" << std::endl;
+            double ax, ay, az, gx, gy, gz, mx, my, mz;
+            ::memcpy(&ax, &data[0], 8);
+            ::memcpy(&ay, &data[8], 8);
+            ::memcpy(&az, &data[16], 8);
+            ::memcpy(&gx, &data[24], 8);
+            ::memcpy(&gy, &data[32], 8);
+            ::memcpy(&gz, &data[40], 8);
+            ::memcpy(&mx, &data[48], 8);
+            ::memcpy(&my, &data[56], 8);
+            ::memcpy(&mz, &data[64], 8);
+
+            //减去零偏（手动测的，直接写死）
+            //这种做法不标准，标准做法是上电后静止一段时间，由程序自动计算零偏
+            ax -= 0.52382625;
+            ay -= 0.02085351;
+            az -= 3.99125313;
+            gx -= -0.03731723;
+            gy -= -0.03349464;
+            gz -= -0.00866628;
+
+            std::cout << "imu: acc=(" << ax << "," << ay << "," << az
+                      << ") gyro=(" << gx << "," << gy << "," << gz
+                      << ") mag=(" << mx << "," << my << "," << mz << ")" << std::endl;
         } else if (topic == 10) {   // handle time sync request topic
             node->SendTimeSyncReply();
         }
