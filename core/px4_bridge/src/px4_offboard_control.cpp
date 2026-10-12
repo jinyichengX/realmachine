@@ -13,6 +13,7 @@
 //   - 首次收到 PX4 本地位置前, 不发送任何 setpoint;
 //   - 初始 setpoint 取当前位置, 因此"刚切 Offboard"时不会产生位移;
 //   - auto_arm 默认关闭, 只切模式不解锁, 需要显式打开参数才会发解锁指令;
+//   - 自动解锁前会等待飞控的 pre_flight_checks_pass, 避免指令被静默拒绝且不再重试;
 //   - 未收到目标位姿时, setpoint 保持在当前位置。
 
 #include <array>
@@ -98,6 +99,7 @@ private:
         return static_cast<uint64_t>(this->now().nanoseconds() / 1000);
     }
 
+    //接收规划器的目标点(ROS2坐标系)，然后给/fmu/in/trajectory_setpoint 发布位置
     void onTargetPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
         // ENU -> NED: 北=ENU.y, 东=ENU.x, 地=-ENU.z
@@ -120,6 +122,9 @@ private:
 
     void onVehicleStatus(const px4_msgs::msg::VehicleStatus::SharedPtr msg)
     {
+        status_ = *msg;
+        has_status_ = true;
+
         // 只在状态变化时打印, 避免刷屏
         if (msg->nav_state == last_nav_state_ && msg->arming_state == last_arming_state_) return;
         last_nav_state_ = msg->nav_state;
@@ -158,8 +163,19 @@ private:
             offboard_requested_ = true;
         }
         if (auto_arm_ && offboard_requested_ && !arm_requested_ && counter_ > 100) {
-            arm();
-            arm_requested_ = true;
+            // 必须等飞控自己判定"预检查通过"才发解锁指令:
+            // 否则指令会被静默拒绝, 且不会重试
+            if (!has_status_) {
+                RCLCPP_WARN_THROTTLE(
+                    get_logger(), *get_clock(), 3000, "等待飞控状态, 暂不解锁");
+            } else if (!status_.pre_flight_checks_pass) {
+                RCLCPP_WARN_THROTTLE(
+                    get_logger(), *get_clock(), 3000,
+                    "飞控预检查未通过, 暂不解锁 (详见 QGC 的 Overall Status)");
+            } else {
+                arm();
+                arm_requested_ = true;
+            }
         }
 
         ++counter_;
@@ -241,9 +257,11 @@ private:
 
     // 状态
     px4_msgs::msg::VehicleLocalPosition local_pos_{};
+    px4_msgs::msg::VehicleStatus status_{};
     std::array<float, 3> setpoint_{0.0f, 0.0f, 0.0f};
     double setpoint_yaw_ = 0.0;
     bool has_local_pos_ = false;
+    bool has_status_ = false;
     bool has_target_ = false;
     bool setpoint_initialized_ = false;
     bool offboard_requested_ = false;

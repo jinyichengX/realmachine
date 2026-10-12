@@ -66,7 +66,7 @@ private:
 
         // 位置与姿态: 固定在原点, 姿态与 NED 对齐 (w, x, y, z)
         msg.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED;
-        msg.position = {0.0f, 0.0f, 0.0f};
+        msg.position = {0.0f, 0.0f, 0.5f};
         msg.q = {1.0f, 0.0f, 0.0f, 0.0f};
 
         msg.velocity_frame = px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_NED;

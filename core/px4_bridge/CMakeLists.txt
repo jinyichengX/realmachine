@@ -51,11 +51,21 @@ ament_target_dependencies(px4_attitude_print
   "px4_msgs"
 )
 
+# EV 桥: LIO odom -> PX4 vehicle_visual_odometry
+add_executable(px4_ev_bridge src/px4_ev_bridge.cpp)
+target_compile_features(px4_ev_bridge PUBLIC cxx_std_17)
+ament_target_dependencies(px4_ev_bridge
+  "rclcpp"
+  "px4_msgs"
+  "nav_msgs"
+)
+
 install(TARGETS
   px4_odom_bridge
   px4_offboard_control
   px4_fake_ev
   px4_attitude_print
+  px4_ev_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
